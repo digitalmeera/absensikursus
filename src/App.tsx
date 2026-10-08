@@ -104,8 +104,6 @@ export function App() {
         {/* Top Header */}
         <Header
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          onOpenGasModal={() => setGasModalOpen(true)}
-          onOpenCodeModal={() => setCodeModalOpen(true)}
           onLogout={handleLogout}
           profil={profil}
           adminName={currentUser.nama}

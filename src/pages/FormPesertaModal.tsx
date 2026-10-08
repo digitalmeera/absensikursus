@@ -32,7 +32,7 @@ export const FormPesertaModal: React.FC<FormPesertaModalProps> = ({
   const [nomorWA, setNomorWA] = useState<string>('');
   const [orangTua, setOrangTua] = useState<string>('');
   const [alamat, setAlamat] = useState<string>('');
-  const [programKelas, setProgramKelas] = useState<string>('Paket Office Pemula — Rp300.000');
+  const [programKelas, setProgramKelas] = useState<string>('Paket Office Pemula');
   const [hargaProgram, setHargaProgram] = useState<string>('Rp300.000');
   const [statusPeserta, setStatusPeserta] = useState<'Aktif' | 'Nonaktif' | 'Alumni'>('Aktif');
 
@@ -42,9 +42,9 @@ export const FormPesertaModal: React.FC<FormPesertaModalProps> = ({
 
   // Update Harga otomatis saat program berubah
   useEffect(() => {
-    if (programKelas.includes('Paket Office + Desain')) {
+    if (programKelas.includes('Desain')) {
       setHargaProgram('Rp400.000');
-    } else if (programKelas.includes('Paket Office Pemula')) {
+    } else {
       setHargaProgram('Rp300.000');
     }
   }, [programKelas]);
@@ -91,7 +91,7 @@ export const FormPesertaModal: React.FC<FormPesertaModalProps> = ({
       setNomorWA('');
       setOrangTua('');
       setAlamat('');
-      setProgramKelas('Paket Office Pemula — Rp300.000');
+      setProgramKelas('Paket Office Pemula');
       setHargaProgram('Rp300.000');
       setStatusPeserta('Aktif');
     }
@@ -491,12 +491,8 @@ export const FormPesertaModal: React.FC<FormPesertaModalProps> = ({
                 onChange={(e) => setProgramKelas(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-sky-300 bg-white px-3.5 py-2 text-sm text-slate-900 shadow-2xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
               >
-                <option value="Paket Office Pemula — Rp300.000">
-                  Paket Office Pemula — Rp300.000
-                </option>
-                <option value="Paket Office + Desain — Rp400.000">
-                  Paket Office + Desain — Rp400.000
-                </option>
+                <option value="Paket Office Pemula">Paket Office Pemula</option>
+                <option value="Paket Office + Desain">Paket Office + Desain</option>
               </select>
             </div>
 

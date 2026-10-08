@@ -2,21 +2,227 @@ import React, { useState, useEffect } from 'react';
 import { Peserta, ProfilLembaga, CardTemplateConfig } from '../types';
 import { gasApi } from '../services/gasApi';
 import { downloadSingleCardPdf, downloadAllCardsPdf, downloadCardAsJpg } from '../lib/exportPdf';
-import { generateBarcodeDataUrl } from '../lib/barcode';
+import { generateQrCodeDataUrl } from '../lib/qrcode';
 import { 
   CreditCard, 
   Download, 
   FileText, 
   Image as ImageIcon, 
   Search, 
-  Sparkles, 
   CheckCircle2,
-  Users
+  QrCode as QrCodeIcon,
+  Sparkles
 } from 'lucide-react';
 
 interface KartuPesertaPageProps {
   profil: ProfilLembaga;
 }
+
+// Subcomponent for each student card with 1:1 QR Code and custom template support
+const StudentCardItem: React.FC<{
+  peserta: Peserta;
+  profil: ProfilLembaga;
+  cardConfig: CardTemplateConfig;
+}> = ({ peserta, profil, cardConfig }) => {
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+
+  useEffect(() => {
+    let active = true;
+    generateQrCodeDataUrl(peserta.nomorMurid, { size: 240, margin: 1 }).then((url) => {
+      if (active) setQrCodeUrl(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, [peserta.nomorMurid]);
+
+  const hasCustomTemplate = !!(cardConfig.useCustomTemplate && cardConfig.templateImage);
+
+  // Theme colors
+  let themeBg = 'from-slate-900 to-slate-800';
+  let themeAccent = 'bg-sky-500';
+  let themeBadge = 'bg-sky-500 text-white';
+
+  if (cardConfig.theme === 'emerald-green') {
+    themeBg = 'from-emerald-950 to-teal-900';
+    themeAccent = 'bg-emerald-500';
+    themeBadge = 'bg-emerald-500 text-white';
+  } else if (cardConfig.theme === 'royal-indigo') {
+    themeBg = 'from-indigo-950 to-slate-900';
+    themeAccent = 'bg-indigo-500';
+    themeBadge = 'bg-indigo-500 text-white';
+  } else if (cardConfig.theme === 'crimson-amber') {
+    themeBg = 'from-red-950 to-slate-900';
+    themeAccent = 'bg-amber-500';
+    themeBadge = 'bg-amber-500 text-slate-900';
+  }
+
+  return (
+    <div className="flex flex-col rounded-3xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+      {/* Visual Card (Aspect Ratio ID-1 standard ~85.60 x 53.98 = 1.586) */}
+      <div
+        className={`relative w-full aspect-[85.6/53.98] overflow-hidden rounded-2xl ${
+          hasCustomTemplate ? 'bg-slate-900' : `bg-gradient-to-br ${themeBg}`
+        } p-3 text-white shadow-md flex flex-col justify-between`}
+      >
+        {/* Background Custom Template if enabled */}
+        {hasCustomTemplate && cardConfig.templateImage && (
+          <img
+            src={cardConfig.templateImage}
+            alt="Card Template Background"
+            className="absolute inset-0 h-full w-full object-cover pointer-events-none"
+          />
+        )}
+
+        {/* Content Overlay */}
+        <div className="relative z-10 flex flex-col justify-between h-full">
+          {/* Header of Card */}
+          {!hasCustomTemplate ? (
+            <div className="flex items-center justify-between border-b border-white/10 pb-1.5 pt-0.5">
+              <div className="flex items-center gap-1.5 min-w-0">
+                {profil.logo ? (
+                  <img src={profil.logo} alt="Logo" className="h-5 w-5 rounded object-contain bg-white/20 p-0.5" />
+                ) : (
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white/20 text-[9px] font-black">
+                    DM
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <h4 className="text-[11px] font-bold tracking-wider leading-none text-white truncate">
+                    {profil.namaLembaga || 'DIGITALMEERA'}
+                  </h4>
+                  <span className="text-[7px] text-sky-200 uppercase tracking-widest font-medium">
+                    Kartu Peserta Resmi
+                  </span>
+                </div>
+              </div>
+              <span className="shrink-0 text-[8px] font-bold uppercase tracking-wider bg-white/15 px-1.5 py-0.5 rounded text-white/90">
+                OFFICIAL
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between pb-1">
+              <div className="flex items-center gap-1.5">
+                {profil.logo && (
+                  <img src={profil.logo} alt="Logo" className="h-5 w-5 rounded object-contain bg-white/40 p-0.5" />
+                )}
+                <span className="text-[9px] font-bold text-white drop-shadow-md">
+                  {profil.namaLembaga || 'DIGITALMEERA'}
+                </span>
+              </div>
+              <span className="text-[7.5px] font-extrabold uppercase tracking-wider bg-black/40 backdrop-blur-xs px-1.5 py-0.5 rounded text-white border border-white/20">
+                OFFICIAL
+              </span>
+            </div>
+          )}
+
+          {/* Middle Body Layout: Foto (Kiri) | Info (Tengah) | QR Code 1:1 (Kanan) */}
+          <div className="flex items-center gap-2.5 my-auto">
+            {/* Foto Siswa (Kiri) dengan preview object-cover */}
+            <div className="h-16 w-13 sm:h-18 sm:w-14 shrink-0 overflow-hidden rounded-lg border-2 border-white/40 bg-slate-800 shadow-sm flex items-center justify-center">
+              {peserta.foto ? (
+                <img
+                  src={peserta.foto}
+                  alt={peserta.namaPeserta}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="font-bold text-xs text-white/60">
+                  {peserta.namaPeserta.slice(0, 2).toUpperCase()}
+                </span>
+              )}
+            </div>
+
+            {/* Student Info (Tengah) - Tanpa Harga Program */}
+            <div className="flex-1 min-w-0 pr-1">
+              <p className="text-[11px] sm:text-[12px] font-bold text-white truncate leading-snug drop-shadow-sm">
+                {peserta.namaPeserta}
+              </p>
+
+              <div className="mt-0.5 inline-block">
+                <span className={`font-mono text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs ${themeBadge}`}>
+                  {peserta.nomorMurid}
+                </span>
+              </div>
+
+              <div className="mt-1">
+                <p className="text-[6.5px] text-slate-300 uppercase tracking-wider font-semibold">
+                  Program Kelas:
+                </p>
+                <p className="text-[8.5px] sm:text-[9px] text-white font-medium truncate drop-shadow-xs">
+                  {peserta.programKelas.replace(/\s*—\s*Rp[\d.,]+/g, '')}
+                </p>
+              </div>
+
+              <div className="mt-1">
+                <span className="inline-block text-[7px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-1.5 py-0.2 rounded">
+                  {peserta.statusPeserta || 'Aktif'}
+                </span>
+              </div>
+            </div>
+
+            {/* QR Code di Sebelah Kanan (Rasio 1:1) */}
+            <div className="shrink-0 flex flex-col items-center justify-center rounded-xl bg-white p-1 sm:p-1.5 shadow-md border border-slate-200">
+              {qrCodeUrl ? (
+                <img
+                  src={qrCodeUrl}
+                  alt={`QR Code ${peserta.nomorMurid}`}
+                  className="h-12 w-12 sm:h-14 sm:w-14 aspect-square object-contain"
+                />
+              ) : (
+                <div className="h-12 w-12 sm:h-14 sm:w-14 aspect-square bg-slate-100 flex items-center justify-center">
+                  <QrCodeIcon className="h-6 w-6 text-slate-400 animate-pulse" />
+                </div>
+              )}
+              <span className="text-[6.5px] font-mono font-bold text-slate-700 tracking-wider mt-0.5">
+                SCAN QR
+              </span>
+            </div>
+          </div>
+
+          {/* Footer Website www.digitalmeera.tech */}
+          <div className="text-center pt-0.5">
+            <span className="text-[6.5px] font-semibold text-slate-200 tracking-wider drop-shadow-xs">
+              www.digitalmeera.tech
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Card Controls */}
+      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
+        <div className="flex items-center gap-1.5 text-slate-500">
+          <span className="font-mono font-bold text-slate-800">{peserta.nomorMurid}</span>
+          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
+            QR Code 1:1
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => downloadCardAsJpg(peserta, profil, cardConfig)}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+            title="Download format Gambar JPG (300 DPI)"
+          >
+            <ImageIcon className="h-3.5 w-3.5 text-emerald-600" />
+            <span>JPG</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => downloadSingleCardPdf(peserta, profil, cardConfig)}
+            className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-sky-700 transition-colors"
+            title="Download format PDF (85.60 x 53.98 mm)"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>PDF</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) => {
   const [pesertaList, setPesertaList] = useState<Peserta[]>([]);
@@ -27,6 +233,7 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
     showPhoto: true,
     showProgram: true,
     showWatermark: true,
+    useCustomTemplate: false,
   });
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -52,6 +259,35 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
       }
     };
     init();
+
+    const handleSync = () => {
+      init();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('peserta_updated', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel('digitalmeera_sync');
+        channel.onmessage = () => {
+          init();
+        };
+      } catch (err) {
+        console.warn('BroadcastChannel error:', err);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('peserta_updated', handleSync);
+      window.removeEventListener('focus', handleSync);
+      if (channel) {
+        channel.close();
+      }
+    };
   }, []);
 
   const showToast = (msg: string) => {
@@ -95,7 +331,7 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
             Kartu Peserta Siswa
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Ukuran standar kartu ID-1 (85,60 mm &times; 53,98 mm) dengan barcode Code 128 permanen.
+            Kartu standar ID-1 (85,60 mm &times; 53,98 mm) dengan QR Code 1:1 di sisi kanan tanpa mencantumkan harga.
           </p>
         </div>
 
@@ -109,6 +345,14 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
           <span>{downloadingAll ? 'Menyiapkan PDF...' : 'Download Semua Kartu (PDF)'}</span>
         </button>
       </div>
+
+      {/* Template Status Notice */}
+      {cardConfig.useCustomTemplate && cardConfig.templateImage && (
+        <div className="flex items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs font-medium text-sky-800">
+          <Sparkles className="h-4 w-4 text-sky-600 shrink-0" />
+          <span>Kartu menggunakan template desain kustom latar belakang yang diunggah dari Pengaturan.</span>
+        </div>
+      )}
 
       {/* Search Input */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
@@ -131,141 +375,14 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
         </div>
       ) : filtered.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filtered.map((peserta) => {
-            const barcodeDataUrl = generateBarcodeDataUrl(peserta.nomorMurid, {
-              width: 2.2,
-              height: 48,
-              displayValue: true,
-              fontSize: 12,
-            });
-
-            // Theme colors
-            let themeBg = 'from-slate-900 to-slate-800';
-            let themeAccent = 'bg-sky-500';
-            let themeBadge = 'bg-sky-500 text-white';
-
-            if (cardConfig.theme === 'emerald-green') {
-              themeBg = 'from-emerald-950 to-teal-900';
-              themeAccent = 'bg-emerald-500';
-              themeBadge = 'bg-emerald-500 text-white';
-            } else if (cardConfig.theme === 'royal-indigo') {
-              themeBg = 'from-indigo-950 to-slate-900';
-              themeAccent = 'bg-indigo-500';
-              themeBadge = 'bg-indigo-500 text-white';
-            } else if (cardConfig.theme === 'crimson-amber') {
-              themeBg = 'from-red-950 to-slate-900';
-              themeAccent = 'bg-amber-500';
-              themeBadge = 'bg-amber-500 text-slate-900';
-            }
-
-            return (
-              <div
-                key={peserta.id}
-                className="flex flex-col rounded-3xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow"
-              >
-                {/* Visual Card (Aspect Ratio ~85.60 x 53.98 = 1.586) */}
-                <div
-                  className={`relative w-full aspect-[85.6/53.98] overflow-hidden rounded-2xl bg-gradient-to-br ${themeBg} p-3 text-white shadow-md flex flex-col justify-between`}
-                >
-                  {/* Top Bar Accent */}
-                  <div className={`absolute top-0 left-0 right-0 h-1.5 ${themeAccent}`} />
-
-                  {/* Header of Card */}
-                  <div className="flex items-center justify-between border-b border-white/10 pb-1.5 pt-1">
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex h-5 w-5 items-center justify-center rounded bg-white/20 text-[9px] font-black">
-                        DM
-                      </div>
-                      <div>
-                        <h4 className="text-[11px] font-bold tracking-wider leading-none text-white">
-                          {profil.namaLembaga || 'DIGITALMEERA'}
-                        </h4>
-                        <span className="text-[7px] text-slate-300 uppercase tracking-widest font-medium">
-                          Kartu Peserta Resmi
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-[8px] font-bold uppercase tracking-wider bg-white/15 px-1.5 py-0.5 rounded text-white/90">
-                      OFFICIAL
-                    </span>
-                  </div>
-
-                  {/* Body Content */}
-                  <div className="flex items-center gap-3 my-auto">
-                    {/* Photo */}
-                    <div className="h-16 w-14 shrink-0 overflow-hidden rounded-lg border-2 border-white/30 bg-slate-800 shadow-xs flex items-center justify-center">
-                      {peserta.foto ? (
-                        <img
-                          src={peserta.foto}
-                          alt={peserta.namaPeserta}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <span className="font-bold text-xs text-white/60">
-                          {peserta.namaPeserta.slice(0, 2).toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Student Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] font-bold text-white truncate leading-snug">
-                        {peserta.namaPeserta}
-                      </p>
-                      <div className="mt-0.5 inline-block">
-                        <span className={`font-mono text-[9px] font-bold px-1.5 py-0.5 rounded ${themeBadge}`}>
-                          {peserta.nomorMurid}
-                        </span>
-                      </div>
-                      <p className="text-[9px] text-slate-300 font-medium truncate mt-1">
-                        {peserta.programKelas}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Barcode Area at the bottom */}
-                  <div className="rounded-lg bg-white p-1 shadow-xs flex items-center justify-center">
-                    {barcodeDataUrl && (
-                      <img
-                        src={barcodeDataUrl}
-                        alt={`Barcode ${peserta.nomorMurid}`}
-                        className="h-8 w-full object-contain"
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {/* Card Controls */}
-                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
-                  <div className="text-slate-500">
-                    <span className="font-mono font-bold text-slate-800">{peserta.nomorMurid}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => downloadCardAsJpg(peserta, profil, cardConfig)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
-                      title="Download format Gambar JPG (300 DPI)"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>JPG</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => downloadSingleCardPdf(peserta, profil, cardConfig)}
-                      className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-sky-700 transition-colors"
-                      title="Download format PDF (85.60 x 53.98 mm)"
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                      <span>PDF</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {filtered.map((peserta) => (
+            <StudentCardItem
+              key={peserta.id}
+              peserta={peserta}
+              profil={profil}
+              cardConfig={cardConfig}
+            />
+          ))}
         </div>
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-xs">

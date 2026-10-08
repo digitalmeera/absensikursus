@@ -9,7 +9,8 @@ import {
   Settings, 
   LogOut, 
   X,
-  GraduationCap
+  GraduationCap,
+  ExternalLink
 } from 'lucide-react';
 
 export type ActivePage = 
@@ -123,6 +124,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
           </nav>
+
+          {/* Public Registration Link */}
+          <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
+            <a
+              href="/pendaftaran.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between rounded-lg bg-sky-950/60 border border-sky-800/50 px-3 py-2 text-xs font-semibold text-sky-300 hover:bg-sky-900/60 hover:text-white transition-all shadow-2xs group"
+              title="Buka form pendaftaran mandiri calon siswa"
+            >
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                <span>Pendaftaran Mandiri</span>
+              </div>
+              <ExternalLink className="h-3.5 w-3.5 text-sky-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+            </a>
+          </div>
         </div>
 
         {/* Bottom Section: Logout & Footer */}

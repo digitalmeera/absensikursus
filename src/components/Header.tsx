@@ -1,21 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Menu, 
-  Wifi, 
-  WifiOff, 
   Clock, 
   User, 
-  LogOut, 
-  ExternalLink,
-  Code2
+  LogOut 
 } from 'lucide-react';
-import { gasApi } from '../services/gasApi';
 import { ProfilLembaga } from '../types';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
-  onOpenGasModal: () => void;
-  onOpenCodeModal: () => void;
   onLogout: () => void;
   profil: ProfilLembaga;
   adminName: string;
@@ -23,15 +16,12 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
-  onOpenGasModal,
-  onOpenCodeModal,
   onLogout,
   profil,
   adminName,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
-  const isConnected = gasApi.isConnectedToGas();
 
   useEffect(() => {
     const updateDateTime = () => {
@@ -92,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Clock, Status, Admin Info */}
+      {/* Right: Clock & Admin Info */}
       <div className="flex items-center gap-2 sm:gap-4">
         {/* Real-time Clock */}
         <div className="hidden md:flex items-center gap-2 text-xs text-slate-700 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/80">
@@ -101,46 +91,6 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-slate-500">|</span>
           <span className="text-slate-600">{currentDate}</span>
         </div>
-
-        {/* Backend Code Button */}
-        <button
-          type="button"
-          onClick={onOpenCodeModal}
-          className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all"
-          title="Lihat Source Code Google Apps Script Code.gs"
-        >
-          <Code2 className="h-3.5 w-3.5 text-indigo-600" />
-          <span>Code.gs</span>
-        </button>
-
-        {/* Gas Connection Badge */}
-        <button
-          type="button"
-          onClick={onOpenGasModal}
-          className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all ${
-            isConnected
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-              : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
-          }`}
-          title={isConnected ? 'Terhubung ke Google Spreadsheet' : 'Klik untuk hubungkan Google Apps Script'}
-        >
-          {isConnected ? (
-            <>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="hidden sm:inline">Google Apps Script</span>
-              <span className="sm:hidden">GAS</span>
-            </>
-          ) : (
-            <>
-              <WifiOff className="h-3 w-3 text-amber-500" />
-              <span className="hidden sm:inline">Koneksi Apps Script</span>
-              <span className="sm:hidden">Setting GAS</span>
-            </>
-          )}
-        </button>
 
         {/* User Profile */}
         <div className="flex items-center gap-2 border-l border-slate-200 pl-3">

@@ -81,6 +81,8 @@ export interface CardTemplateConfig {
   showPhoto: boolean;
   showProgram: boolean;
   showWatermark: boolean;
+  templateImage?: string; // Data URL / URL background template kustom kartu
+  useCustomTemplate?: boolean; // Gunakan template background gambar kustom
 }
 
 export interface ApiResponse<T = any> {

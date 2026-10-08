@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '../components/Modal';
-import { Peserta, ProfilLembaga } from '../types';
+import { Peserta, ProfilLembaga, CardTemplateConfig } from '../types';
 import { downloadSingleCardPdf, downloadCardAsJpg } from '../lib/exportPdf';
-import { Download, FileText, Image as ImageIcon, Calendar, Phone, MapPin, User, BookOpen } from 'lucide-react';
-import { generateBarcodeDataUrl } from '../lib/barcode';
+import { FileText, Image as ImageIcon, QrCode as QrCodeIcon } from 'lucide-react';
+import { generateQrCodeDataUrl } from '../lib/qrcode';
+import { gasApi } from '../services/gasApi';
 
 interface DetailPesertaModalProps {
   isOpen: boolean;
@@ -18,13 +19,19 @@ export const DetailPesertaModal: React.FC<DetailPesertaModalProps> = ({
   peserta,
   profil,
 }) => {
-  if (!peserta) return null;
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  const [cardConfig, setCardConfig] = useState<CardTemplateConfig | undefined>();
 
-  const barcodeUrl = generateBarcodeDataUrl(peserta.nomorMurid, {
-    width: 2,
-    height: 50,
-    displayValue: true,
-  });
+  useEffect(() => {
+    if (peserta) {
+      generateQrCodeDataUrl(peserta.nomorMurid, { size: 240, margin: 1 }).then((url) => {
+        setQrCodeUrl(url);
+      });
+      gasApi.getCardConfig().then((cfg) => setCardConfig(cfg));
+    }
+  }, [peserta]);
+
+  if (!peserta) return null;
 
   return (
     <Modal
@@ -63,17 +70,21 @@ export const DetailPesertaModal: React.FC<DetailPesertaModalProps> = ({
               </span>
             </div>
             <h3 className="text-lg font-bold text-slate-900">{peserta.namaPeserta}</h3>
-            <p className="text-xs font-semibold text-slate-600">{peserta.programKelas}</p>
+            <p className="text-xs font-semibold text-slate-600">{peserta.programKelas.replace(/\s*—\s*Rp[\d.,]+/g, '')}</p>
             <p className="text-xs text-slate-500">{peserta.status} &bull; {peserta.jenisKelamin}</p>
           </div>
 
-          {/* Barcode Preview */}
-          {barcodeUrl && (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-2 shadow-2xs">
-              <img src={barcodeUrl} alt="Barcode Siswa" className="h-14 object-contain" />
-              <span className="text-[10px] font-mono text-slate-400 mt-0.5">Code 128 Static</span>
-            </div>
-          )}
+          {/* QR Code 1:1 Preview */}
+          <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-2 shadow-2xs shrink-0">
+            {qrCodeUrl ? (
+              <img src={qrCodeUrl} alt="QR Code Siswa" className="h-16 w-16 aspect-square object-contain" />
+            ) : (
+              <div className="h-16 w-16 aspect-square bg-slate-50 flex items-center justify-center">
+                <QrCodeIcon className="h-8 w-8 text-slate-400" />
+              </div>
+            )}
+            <span className="text-[9px] font-mono font-bold text-slate-600 mt-0.5">QR Code 1:1</span>
+          </div>
         </div>
 
         {/* Detailed Fields Grid */}
@@ -104,7 +115,7 @@ export const DetailPesertaModal: React.FC<DetailPesertaModalProps> = ({
           </div>
 
           <div className="rounded-xl border border-slate-100 bg-white p-3.5 space-y-1">
-            <span className="text-slate-600 uppercase tracking-wider font-semibold">Biaya Program</span>
+            <span className="text-slate-600 uppercase tracking-wider font-semibold">Biaya Program (Administrasi)</span>
             <p className="font-bold text-sky-700">{peserta.hargaProgram}</p>
           </div>
 
@@ -117,14 +128,14 @@ export const DetailPesertaModal: React.FC<DetailPesertaModalProps> = ({
         {/* Card Export Quick Actions */}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div>
-            <p className="text-xs font-bold text-slate-900">Kartu Peserta Resmi</p>
-            <p className="text-[11px] text-slate-600">Ukuran standar kartu 85,60 mm &times; 53,98 mm</p>
+            <p className="text-xs font-bold text-slate-900">Cetak Kartu Peserta Resmi</p>
+            <p className="text-[11px] text-slate-600">Kartu dengan QR Code 1:1 standar ID-1 tanpa harga</p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => downloadCardAsJpg(peserta, profil)}
+              onClick={() => downloadCardAsJpg(peserta, profil, cardConfig)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 transition-colors"
             >
               <ImageIcon className="h-3.5 w-3.5 text-sky-600" />
@@ -132,7 +143,7 @@ export const DetailPesertaModal: React.FC<DetailPesertaModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => downloadSingleCardPdf(peserta, profil)}
+              onClick={() => downloadSingleCardPdf(peserta, profil, cardConfig)}
               className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-sky-700 transition-colors"
             >
               <FileText className="h-3.5 w-3.5" />

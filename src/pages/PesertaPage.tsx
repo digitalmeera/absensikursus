@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Peserta, ProfilLembaga } from '../types';
+import { Peserta, ProfilLembaga, CardTemplateConfig } from '../types';
 import { gasApi } from '../services/gasApi';
 import { FormPesertaModal } from './FormPesertaModal';
 import { DetailPesertaModal } from './DetailPesertaModal';
@@ -19,7 +19,8 @@ import {
   CheckCircle2, 
   AlertCircle,
   FileText,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ExternalLink
 } from 'lucide-react';
 
 interface PesertaPageProps {
@@ -50,14 +51,19 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
 
   // Toast
   const [toastMessage, setToastMessage] = useState<string>('');
+  const [cardConfig, setCardConfig] = useState<CardTemplateConfig | undefined>();
 
   const fetchPeserta = async () => {
     setLoading(true);
     try {
-      const res = await gasApi.getPeserta();
+      const [res, cfg] = await Promise.all([
+        gasApi.getPeserta(),
+        gasApi.getCardConfig(),
+      ]);
       if (res.success && res.data) {
         setPesertaList(res.data);
       }
+      setCardConfig(cfg);
     } catch (err) {
       console.error('Failed to load peserta', err);
     } finally {
@@ -67,6 +73,37 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
 
   useEffect(() => {
     fetchPeserta();
+
+    const handleSync = () => {
+      fetchPeserta();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('peserta_updated', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel('digitalmeera_sync');
+        channel.onmessage = (msg) => {
+          if (msg.data?.type === 'PESERTA_ADDED' || msg.data?.type === 'PESERTA_UPDATED') {
+            fetchPeserta();
+          }
+        };
+      } catch (err) {
+        console.warn('BroadcastChannel error:', err);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('peserta_updated', handleSync);
+      window.removeEventListener('focus', handleSync);
+      if (channel) {
+        channel.close();
+      }
+    };
   }, []);
 
   const showToast = (msg: string) => {
@@ -148,14 +185,27 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreate}
-          className="inline-flex items-center gap-2 self-start sm:self-auto rounded-xl bg-sky-600 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-sky-700 transition-all"
-        >
-          <UserPlus className="h-4 w-4" />
-          <span>Pendaftaran Peserta Baru</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <a
+            href="/pendaftaran.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-sky-700 shadow-2xs hover:bg-sky-100 transition-all"
+            title="Buka formulir pendaftaran mandiri siswa publik"
+          >
+            <ExternalLink className="h-4 w-4 text-sky-600" />
+            <span>Formulir Pendaftaran Mandiri (/pendaftaran.html)</span>
+          </a>
+
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-sky-700 transition-all"
+          >
+            <UserPlus className="h-4 w-4" />
+            <span>Pendaftaran Peserta Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -315,7 +365,7 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
                           {/* Unduh Kartu PDF */}
                           <button
                             type="button"
-                            onClick={() => downloadSingleCardPdf(p, profil)}
+                            onClick={() => downloadSingleCardPdf(p, profil, cardConfig)}
                             className="rounded-lg p-1.5 text-slate-500 hover:bg-sky-50 hover:text-sky-600 transition-colors"
                             title="Unduh Kartu PDF (85.6x53.98 mm)"
                           >
@@ -325,7 +375,7 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
                           {/* Unduh Kartu JPG */}
                           <button
                             type="button"
-                            onClick={() => downloadCardAsJpg(p, profil)}
+                            onClick={() => downloadCardAsJpg(p, profil, cardConfig)}
                             className="rounded-lg p-1.5 text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
                             title="Unduh Kartu Gambar JPG"
                           >

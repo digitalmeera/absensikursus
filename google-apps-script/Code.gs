@@ -632,6 +632,18 @@ function handleGetPeserta(params) {
 }
 
 function handleCreatePeserta(params) {
+  if (!params) {
+    return { success: false, message: "Parameter tidak boleh kosong." };
+  }
+
+  // Normalisasi field yang mungkin dikirimkan dengan format berbeda
+  if (!params.nama && params.namaPeserta) {
+    params.nama = params.namaPeserta;
+  }
+  if (!params.nomorWA && (params.telepon || params.hp)) {
+    params.nomorWA = params.telepon || params.hp;
+  }
+
   // Validasi field wajib sesuai spesifikasi
   const requiredFields = [
     "nama", "tempatLahir", "tanggalLahir", "jenisKelamin",
@@ -703,14 +715,33 @@ function handleCreatePeserta(params) {
 
   sheet.appendRow(rowData);
 
+  const newPesertaRecord = {
+    id: id,
+    nomorMurid: nomorMurid,
+    foto: fotoUrl,
+    namaPeserta: params.nama.trim(),
+    tempatLahir: params.tempatLahir.trim(),
+    tanggalLahir: params.tanggalLahir,
+    jenisKelamin: params.jenisKelamin,
+    agama: params.agama,
+    status: params.status,
+    nomorWA: params.nomorWA.trim(),
+    orangTua: params.orangTua.trim(),
+    alamat: params.alamat.trim(),
+    programKelas: params.programKelas,
+    hargaProgram: harga,
+    barcodeId: barcodeId,
+    barcodeValue: barcodeValue,
+    tanggalPendaftaran: params.tanggalPendaftaran || now.slice(0, 10),
+    statusPeserta: params.statusPeserta || "Aktif",
+    createdAt: now,
+    updatedAt: now
+  };
+
   return {
     success: true,
     message: "Data peserta berhasil ditambahkan.",
-    data: {
-      id: id,
-      nomorMurid: nomorMurid,
-      barcodeValue: barcodeValue
-    }
+    data: newPesertaRecord
   };
 }
 

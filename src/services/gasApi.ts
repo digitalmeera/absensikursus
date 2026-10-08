@@ -197,6 +197,7 @@ export class GasApiService {
         if (res.success && Array.isArray(res.data)) {
           // Normalisasi nama kolom dari Sheet (misal "Nomor Murid" -> nomorMurid)
           const normalized: Peserta[] = res.data.map(r => this.normalizePesertaRow(r));
+          this.saveLocalPeserta(normalized);
           return { success: true, data: normalized };
         }
       } catch (err) {
@@ -213,6 +214,7 @@ export class GasApiService {
       try {
         const res = await this.requestGAS('createPeserta', {
           nama: data.namaPeserta,
+          namaPeserta: data.namaPeserta,
           tempatLahir: data.tempatLahir,
           tanggalLahir: data.tanggalLahir,
           jenisKelamin: data.jenisKelamin,
@@ -227,11 +229,47 @@ export class GasApiService {
           tanggalPendaftaran: data.tanggalPendaftaran,
           statusPeserta: data.statusPeserta || 'Aktif',
         });
-        if (res.success) {
-          return res;
+        if (res.success && res.data) {
+          const createdStudent: Peserta = {
+            id: res.data.id || `PST${Date.now()}`,
+            nomorMurid: res.data.nomorMurid || `DM0001`,
+            foto: res.data.foto || data.foto || '',
+            namaPeserta: res.data.namaPeserta || data.namaPeserta,
+            tempatLahir: res.data.tempatLahir || data.tempatLahir,
+            tanggalLahir: res.data.tanggalLahir || data.tanggalLahir,
+            jenisKelamin: res.data.jenisKelamin || data.jenisKelamin,
+            agama: res.data.agama || data.agama,
+            status: res.data.status || data.status,
+            nomorWA: res.data.nomorWA || data.nomorWA,
+            orangTua: res.data.orangTua || data.orangTua,
+            alamat: res.data.alamat || data.alamat,
+            programKelas: res.data.programKelas || data.programKelas,
+            hargaProgram: res.data.hargaProgram || data.hargaProgram,
+            barcodeId: res.data.barcodeId || `BAR-${res.data.nomorMurid || 'DM0001'}`,
+            barcodeValue: res.data.barcodeValue || res.data.nomorMurid || 'DM0001',
+            tanggalPendaftaran: res.data.tanggalPendaftaran || data.tanggalPendaftaran || new Date().toISOString().slice(0, 10),
+            statusPeserta: res.data.statusPeserta || data.statusPeserta || 'Aktif',
+            createdAt: res.data.createdAt || new Date().toISOString(),
+            updatedAt: res.data.updatedAt || new Date().toISOString(),
+          };
+
+          const list = this.getLocalPeserta();
+          const existingIdx = list.findIndex(p => p.nomorMurid === createdStudent.nomorMurid || p.id === createdStudent.id);
+          if (existingIdx >= 0) {
+            list[existingIdx] = createdStudent;
+          } else {
+            list.push(createdStudent);
+          }
+          this.saveLocalPeserta(list);
+
+          return {
+            success: true,
+            message: 'Data peserta berhasil ditambahkan.',
+            data: createdStudent,
+          };
         }
       } catch (err) {
-        console.warn('GAS error on createPeserta');
+        console.warn('GAS error on createPeserta', err);
       }
     }
 
@@ -709,12 +747,52 @@ export class GasApiService {
   private getLocalPeserta(): Peserta[] {
     if (typeof window === 'undefined') return [];
     const raw = localStorage.getItem(LOCAL_PESERTA_KEY);
-    return raw ? JSON.parse(raw) : []; // EMPTY ARRAY! No dummy students!
+    const rawAlt = localStorage.getItem('digitalmeera_peserta_list');
+    
+    let list1: Peserta[] = [];
+    let list2: Peserta[] = [];
+
+    try {
+      if (raw) list1 = JSON.parse(raw);
+    } catch {}
+    try {
+      if (rawAlt) list2 = JSON.parse(rawAlt);
+    } catch {}
+
+    // Merge and deduplicate by nomorMurid or id
+    const map = new Map<string, Peserta>();
+    [...list1, ...list2].forEach((p) => {
+      const key = p.nomorMurid || p.id;
+      if (key && !map.has(key)) {
+        map.set(key, p);
+      }
+    });
+
+    const merged = Array.from(map.values());
+    if (merged.length > 0 && (!raw || list1.length !== merged.length)) {
+      try {
+        localStorage.setItem(LOCAL_PESERTA_KEY, JSON.stringify(merged));
+      } catch {}
+    }
+    return merged;
   }
 
   private saveLocalPeserta(list: Peserta[]): void {
     if (typeof window !== 'undefined') {
-      localStorage.setItem(LOCAL_PESERTA_KEY, JSON.stringify(list));
+      try {
+        localStorage.setItem(LOCAL_PESERTA_KEY, JSON.stringify(list));
+        localStorage.setItem('digitalmeera_peserta_list', JSON.stringify(list));
+        localStorage.setItem('digitalmeera_last_sync', Date.now().toString());
+
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('digitalmeera_sync');
+          bc.postMessage({ type: 'PESERTA_UPDATED' });
+          bc.close();
+        }
+      } catch {}
+
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('peserta_updated'));
     }
   }
 
@@ -758,8 +836,8 @@ export class GasApiService {
         logo: '',
         alamat: 'Jl. Pendidikan No. 12, Indonesia',
         nomorWA: '081234567890',
-        email: 'info@digitalmeera.com',
-        website: 'https://digitalmeera.com',
+        email: 'info@digitalmeera.tech',
+        website: 'www.digitalmeera.tech',
         footer: '© DIGITALMEERA - Sistem Kursus & Les Privat',
       };
     }
@@ -771,8 +849,8 @@ export class GasApiService {
       logo: '',
       alamat: 'Jl. Pendidikan No. 12, Indonesia',
       nomorWA: '081234567890',
-      email: 'info@digitalmeera.com',
-      website: 'https://digitalmeera.com',
+      email: 'info@digitalmeera.tech',
+      website: 'www.digitalmeera.tech',
       footer: '© DIGITALMEERA - Sistem Kursus & Les Privat',
     };
     this.saveLocalProfil(defaultProfil);

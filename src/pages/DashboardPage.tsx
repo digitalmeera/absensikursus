@@ -50,6 +50,35 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     fetchStats();
+
+    const handleSync = () => {
+      fetchStats();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('peserta_updated', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel('digitalmeera_sync');
+        channel.onmessage = () => {
+          fetchStats();
+        };
+      } catch (err) {
+        console.warn('BroadcastChannel error:', err);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('peserta_updated', handleSync);
+      window.removeEventListener('focus', handleSync);
+      if (channel) {
+        channel.close();
+      }
+    };
   }, []);
 
   const attendancePercentage = stats.totalPeserta > 0 
@@ -68,15 +97,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             Ringkasan data peserta, aktivitas kehadiran harian, dan statistik program kursus.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={fetchStats}
-          disabled={loading}
-          className="inline-flex items-center gap-2 self-start sm:self-auto rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-sky-600' : 'text-slate-500'}`} />
-          <span>Segarkan Data</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchStats}
+            disabled={loading}
+            className="inline-flex items-center gap-2 self-start sm:self-auto rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-sky-600' : 'text-slate-500'}`} />
+            <span>Segarkan Data</span>
+          </button>
+        </div>
       </div>
 
       {/* 6 Metric Cards */}
