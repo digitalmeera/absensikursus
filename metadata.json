@@ -1,0 +1,6 @@
+{
+  "name": "DIGITALMEERA - Sistem Pendaftaran & Absensi Kursus",
+  "description": "Sistem Pendaftaran & Absensi Kursus Digitalmeera dengan Kartu Barcode Siswa, Scanner Kamera Otomatis, Laporan Export, dan Google Spreadsheet API Backend.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
