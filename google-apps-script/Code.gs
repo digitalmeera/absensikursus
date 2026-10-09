@@ -359,6 +359,12 @@ function handleRequest(e, method) {
         result = handleGetDashboard();
         break;
 
+      // Sync All Data (High-Performance Consolidated Read)
+      case "syncAll":
+      case "getAll":
+        result = handleSyncAll();
+        break;
+
       // Peserta CRUD
       case "getPeserta":
         result = handleGetPeserta(params);
@@ -714,6 +720,7 @@ function handleCreatePeserta(params) {
   ];
 
   sheet.appendRow(rowData);
+  clearSyncCache();
 
   const newPesertaRecord = {
     id: id,
@@ -823,6 +830,7 @@ function handleUpdatePeserta(params) {
   ];
 
   sheet.getRange(targetRowIdx, 1, 1, 20).setValues([updatedData]);
+  clearSyncCache();
 
   return { success: true, message: "Data peserta berhasil diperbarui." };
 }
@@ -857,6 +865,7 @@ function handleDeletePeserta(params) {
   const now = new Date().toISOString();
   sheet.getRange(targetRowIdx, 18).setValue("Deleted");
   sheet.getRange(targetRowIdx, 20).setValue(now);
+  clearSyncCache();
 
   return { success: true, message: "Peserta berhasil dihapus (soft delete)." };
 }
@@ -1016,6 +1025,7 @@ function handleCreateAbsensi(params) {
   ];
 
   absensiSheet.appendRow(rowData);
+  clearSyncCache();
 
   return {
     success: true,
@@ -1066,6 +1076,7 @@ function handleUpdateAbsensi(params) {
   if (params.shift) sheet.getRange(targetRowIdx, 9).setValue(params.shift);
   if (params.keterangan !== undefined) sheet.getRange(targetRowIdx, 10).setValue(params.keterangan);
   sheet.getRange(targetRowIdx, 13).setValue(now);
+  clearSyncCache();
 
   return { success: true, message: "Data absensi berhasil diperbarui." };
 }
@@ -1097,6 +1108,7 @@ function handleDeleteAbsensi(params) {
   }
 
   sheet.deleteRow(targetRowIdx);
+  clearSyncCache();
   return { success: true, message: "Data absensi berhasil dihapus." };
 }
 
@@ -1440,17 +1452,18 @@ function saveBase64Image(base64Data, targetFolderName, fileName) {
 }
 
 // ============================================================================
-// HELPER UTILITY: BACA SHEET SEBAGAI ARRAY OF OBJECTS
+// HELPER UTILITY: BACA SHEET SEBAGAI ARRAY OF OBJECTS (HIGH PERFORMANCE ATOMIC READ)
 // ============================================================================
 function getSheetRowsAsObjects(sheet) {
-  const lastRow = sheet.getLastRow();
-  const lastCol = sheet.getLastColumn();
-  if (lastRow <= 1 || lastCol < 1) return [];
+  if (!sheet) return [];
+  const range = sheet.getDataRange();
+  const values = range.getValues();
+  if (!values || values.length <= 1) return [];
 
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => (h || "").toString().trim());
-  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const headers = values[0].map(h => (h != null ? h.toString().trim() : ""));
+  const rows = values.slice(1);
 
-  return data.map(row => {
+  return rows.map(row => {
     const obj = {};
     headers.forEach((h, idx) => {
       if (h) {
@@ -1464,4 +1477,140 @@ function getSheetRowsAsObjects(sheet) {
     });
     return obj;
   });
+}
+
+function clearSyncCache() {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove("digitalmeera_sync_all_v2");
+  } catch (e) {
+    // Abaikan kegagalan cache
+  }
+}
+
+/**
+ * High-Performance Consolidated Read (syncAll)
+ * Mengambil semua data untuk admin panel dalam 1 kali round-trip ultra-cepat
+ */
+function handleSyncAll() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get("digitalmeera_sync_all_v2");
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (e) {}
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Peserta
+  const pesertaSheet = ss.getSheetByName(SHEET_NAMES.PESERTA);
+  let peserta = [];
+  let totalPeserta = 0;
+  let paketOfficePemula = 0;
+  let paketOfficeDesain = 0;
+
+  if (pesertaSheet) {
+    const pRows = getSheetRowsAsObjects(pesertaSheet);
+    peserta = pRows.filter(p => p["Status Peserta"] !== "Deleted");
+    totalPeserta = peserta.length;
+    peserta.forEach(p => {
+      const prog = p["Program Kelas"] || "";
+      if (prog.indexOf("Paket Office Pemula") !== -1) paketOfficePemula++;
+      else if (prog.indexOf("Paket Office + Desain") !== -1) paketOfficeDesain++;
+    });
+  }
+
+  // 2. Absensi
+  const absensiSheet = ss.getSheetByName(SHEET_NAMES.ABSENSI);
+  let absensi = [];
+  let totalAbsensi = 0;
+  let absensiHariIni = 0;
+  let hadirHariIniSet = {};
+  const timeZone = ss.getSpreadsheetTimeZone() || "Asia/Jakarta";
+  const todayStr = Utilities.formatDate(new Date(), timeZone, "yyyy-MM-dd");
+  let recentAbsensi = [];
+
+  if (absensiSheet) {
+    const aRows = getSheetRowsAsObjects(absensiSheet);
+    totalAbsensi = aRows.length;
+    absensi = aRows;
+    aRows.forEach(a => {
+      if (a.Tanggal === todayStr) {
+        absensiHariIni++;
+        if (a["Nomor Murid"]) hadirHariIniSet[a["Nomor Murid"]] = true;
+      }
+    });
+    recentAbsensi = aRows.slice(-5).reverse();
+  }
+
+  const tidakHadirHariIni = Math.max(0, totalPeserta - Object.keys(hadirHariIniSet).length);
+
+  // 3. Shift
+  const shiftSheet = ss.getSheetByName(SHEET_NAMES.SHIFT);
+  let shifts = [];
+  if (shiftSheet) {
+    shifts = getSheetRowsAsObjects(shiftSheet);
+  }
+
+  // 4. Profil
+  let profil = {};
+  const profilSheet = ss.getSheetByName(SHEET_NAMES.PROFIL);
+  if (profilSheet) {
+    const prRows = getSheetRowsAsObjects(profilSheet);
+    if (prRows.length > 0) {
+      profil = {
+        namaLembaga: prRows[0]["Nama Lembaga"] || "DIGITALMEERA",
+        tagline: prRows[0].Tagline || "Lembaga Kursus Komputer & Desain Terpercaya",
+        alamat: prRows[0].Alamat || "",
+        nomorWA: prRows[0]["Nomor WA"] || "",
+        email: prRows[0].Email || "",
+        website: prRows[0].Website || "https://www.digitalmeera.tech",
+        logo: prRows[0].Logo || "",
+        footer: prRows[0].Footer || "© 2026 DIGITALMEERA. Hak Cipta Dilindungi."
+      };
+    }
+  }
+
+  // 5. Pengaturan
+  let pengaturan = {};
+  const pengSheet = ss.getSheetByName(SHEET_NAMES.PENGATURAN);
+  if (pengSheet) {
+    const pengRows = getSheetRowsAsObjects(pengSheet);
+    pengRows.forEach(r => {
+      if (r["Kunci Pengaturan"]) {
+        pengaturan[r["Kunci Pengaturan"]] = r["Nilai Pengaturan"];
+      }
+    });
+  }
+
+  const responseObj = {
+    success: true,
+    data: {
+      peserta: peserta,
+      absensi: absensi,
+      shifts: shifts,
+      profil: profil,
+      pengaturan: pengaturan,
+      dashboard: {
+        totalPeserta: totalPeserta,
+        paketOfficePemula: paketOfficePemula,
+        paketOfficeDesain: paketOfficeDesain,
+        absensiHariIni: absensiHariIni,
+        tidakHadirHariIni: tidakHadirHariIni,
+        totalAbsensi: totalAbsensi,
+        recentAbsensi: recentAbsensi
+      }
+    }
+  };
+
+  try {
+    const jsonStr = JSON.stringify(responseObj);
+    // Simpan ke CacheService jika ukuran di bawah batas Apps Script 100KB
+    if (jsonStr.length < 90000) {
+      cache.put("digitalmeera_sync_all_v2", jsonStr, 60);
+    }
+  } catch (err) {}
+
+  return responseObj;
 }

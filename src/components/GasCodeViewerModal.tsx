@@ -153,6 +153,8 @@ function handleRequest(e, method) {
       case "setupDatabase": result = setupDatabase(); break;
       case "login": result = handleLogin(params); break;
       case "getDashboard": result = handleGetDashboard(); break;
+      case "syncAll":
+      case "getAll": result = handleSyncAll(); break;
       case "getPeserta": result = handleGetPeserta(params); break;
       case "createPeserta": result = handleCreatePeserta(params); break;
       case "updatePeserta": result = handleUpdatePeserta(params); break;

@@ -23,19 +23,30 @@ interface DashboardPageProps {
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalPeserta: 0,
-    paketOfficePemula: 0,
-    paketOfficeDesain: 0,
-    absensiHariIni: 0,
-    tidakHadirHariIni: 0,
-    totalAbsensi: 0,
-    recentAbsensi: [],
+  const [stats, setStats] = useState<DashboardStats>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('digitalmeera_dashboard_cache');
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch {}
+      }
+    }
+    return {
+      totalPeserta: 0,
+      paketOfficePemula: 0,
+      paketOfficeDesain: 0,
+      absensiHariIni: 0,
+      tidakHadirHariIni: 0,
+      totalAbsensi: 0,
+      recentAbsensi: [],
+    };
   });
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const fetchStats = async () => {
-    setLoading(true);
+    setIsSyncing(true);
     try {
       const res = await gasApi.getDashboard();
       if (res.success && res.data) {
@@ -44,6 +55,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     } catch (err) {
       console.error('Failed to load dashboard stats', err);
     } finally {
+      setIsSyncing(false);
       setLoading(false);
     }
   };
@@ -57,7 +69,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
     window.addEventListener('storage', handleSync);
     window.addEventListener('peserta_updated', handleSync);
-    window.addEventListener('focus', handleSync);
+    window.addEventListener('digitalmeera_synced', handleSync);
 
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
@@ -74,7 +86,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     return () => {
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('peserta_updated', handleSync);
-      window.removeEventListener('focus', handleSync);
+      window.removeEventListener('digitalmeera_synced', handleSync);
       if (channel) {
         channel.close();
       }
@@ -101,11 +113,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           <button
             type="button"
             onClick={fetchStats}
-            disabled={loading}
+            disabled={isSyncing}
             className="inline-flex items-center gap-2 self-start sm:self-auto rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-sky-600' : 'text-slate-500'}`} />
-            <span>Segarkan Data</span>
+            <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin text-sky-600' : 'text-slate-500'}`} />
+            <span>{isSyncing ? 'Menyinkronkan...' : 'Segarkan Data'}</span>
           </button>
         </div>
       </div>

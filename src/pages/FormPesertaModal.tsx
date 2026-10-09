@@ -98,27 +98,53 @@ export const FormPesertaModal: React.FC<FormPesertaModalProps> = ({
     setErrorMsg('');
   }, [isOpen, pesertaToEdit]);
 
-  // Handle Photo Upload
+  // Handle Photo Upload dengan Kompresi Otomatis (Ultra Cepat & Ringan)
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Validasi tipe
-    if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+    if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(file.type)) {
       setErrorMsg('Format foto harus berupa JPG, JPEG, atau PNG.');
       return;
     }
 
-    // Validasi ukuran (maksimal 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setErrorMsg('Ukuran file foto maksimal 2 MB.');
+    // Validasi ukuran (maksimal 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMsg('Ukuran file foto maksimal 5 MB.');
       return;
     }
 
     setErrorMsg('');
     const reader = new FileReader();
-    reader.onload = () => {
-      setFoto(reader.result as string);
+    reader.onload = (evt) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 400;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height && width > maxDim) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else if (height > maxDim) {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+          setFoto(compressedDataUrl);
+        } else {
+          setFoto(evt.target?.result as string);
+        }
+      };
+      img.src = evt.target?.result as string;
     };
     reader.readAsDataURL(file);
   };

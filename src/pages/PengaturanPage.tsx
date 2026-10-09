@@ -65,7 +65,7 @@ export const PengaturanPage: React.FC<PengaturanPageProps> = ({
   const [lembagaSaving, setLembagaSaving] = useState<boolean>(false);
 
   // Tab C: Shift State
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>(() => gasApi.getLocalShifts());
   const [shiftModalOpen, setShiftModalOpen] = useState<boolean>(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [shiftNama, setShiftNama] = useState<string>('');

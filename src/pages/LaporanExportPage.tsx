@@ -21,10 +21,11 @@ interface LaporanExportPageProps {
 
 export const LaporanExportPage: React.FC<LaporanExportPageProps> = ({ profil }) => {
   const [activeTab, setActiveTab] = useState<'absensi' | 'peserta'>('absensi');
-  const [absensiList, setAbsensiList] = useState<Absensi[]>([]);
-  const [pesertaList, setPesertaList] = useState<Peserta[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [absensiList, setAbsensiList] = useState<Absensi[]>(() => gasApi.getLocalAbsensi());
+  const [pesertaList, setPesertaList] = useState<Peserta[]>(() => gasApi.getLocalPeserta().filter((p) => p.statusPeserta !== 'Deleted'));
+  const [shifts, setShifts] = useState<Shift[]>(() => gasApi.getLocalShifts());
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Filters Periode
   const [periode, setPeriode] = useState<string>('bulan-ini');
@@ -36,25 +37,39 @@ export const LaporanExportPage: React.FC<LaporanExportPageProps> = ({ profil }) 
   const [filterShift, setFilterShift] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
+  const fetchData = async () => {
+    setIsSyncing(true);
+    try {
+      const [aRes, pRes, sRes] = await Promise.all([
+        gasApi.getAbsensi(),
+        gasApi.getPeserta(),
+        gasApi.getShifts(),
+      ]);
+      if (aRes.success && aRes.data) setAbsensiList(aRes.data);
+      if (pRes.success && pRes.data) setPesertaList(pRes.data.filter((p) => p.statusPeserta !== 'Deleted'));
+      if (sRes.success && sRes.data) setShifts(sRes.data);
+    } catch (err) {
+      console.error('Fetch report data error', err);
+    } finally {
+      setIsSyncing(false);
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [aRes, pRes, sRes] = await Promise.all([
-          gasApi.getAbsensi(),
-          gasApi.getPeserta(),
-          gasApi.getShifts(),
-        ]);
-        if (aRes.success && aRes.data) setAbsensiList(aRes.data);
-        if (pRes.success && pRes.data) setPesertaList(pRes.data.filter((p) => p.statusPeserta !== 'Deleted'));
-        if (sRes.success && sRes.data) setShifts(sRes.data);
-      } catch (err) {
-        console.error('Fetch report data error', err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchData();
+
+    const handleSync = () => {
+      fetchData();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('digitalmeera_synced', handleSync);
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('digitalmeera_synced', handleSync);
+    };
   }, []);
 
   // Compute date range based on period selection

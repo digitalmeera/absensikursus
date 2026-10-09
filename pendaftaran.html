@@ -439,30 +439,56 @@
     let registeredPeserta = null;
     let qrDataUrl = '';
 
-    // Handle Photo Selection
+    // Handle Photo Selection dengan kompresi otomatis (Ultra Cepat)
     function handlePhotoChange(event) {
       const file = event.target.files && event.target.files[0];
       if (!file) return;
 
-      if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(file.type)) {
         showError('Format foto harus berupa JPG, JPEG, atau PNG.');
         return;
       }
 
-      if (file.size > 2 * 1024 * 1024) {
-        showError('Ukuran file foto maksimal 2 MB.');
+      if (file.size > 5 * 1024 * 1024) {
+        showError('Ukuran file foto maksimal 5 MB.');
         return;
       }
 
       hideError();
       const reader = new FileReader();
       reader.onload = function(e) {
-        currentPhotoDataUrl = e.target.result;
-        document.getElementById('photoPreview').src = currentPhotoDataUrl;
-        document.getElementById('photoPreview').classList.remove('hidden');
-        document.getElementById('photoPlaceholderIcon').classList.add('hidden');
-        document.getElementById('photoPlaceholderText').classList.add('hidden');
-        document.getElementById('removePhotoBtn').classList.remove('hidden');
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const maxDim = 400;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height && width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            currentPhotoDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+          } else {
+            currentPhotoDataUrl = e.target.result;
+          }
+
+          document.getElementById('photoPreview').src = currentPhotoDataUrl;
+          document.getElementById('photoPreview').classList.remove('hidden');
+          document.getElementById('photoPlaceholderIcon').classList.add('hidden');
+          document.getElementById('photoPlaceholderText').classList.add('hidden');
+          document.getElementById('removePhotoBtn').classList.remove('hidden');
+        };
+        img.src = e.target.result;
       };
       reader.readAsDataURL(file);
     }

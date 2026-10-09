@@ -37,34 +37,54 @@ export class GasApiService {
     return !!this.apiUrl && this.apiUrl.includes('script.google.com');
   }
 
+  private inFlightRequests = new Map<string, Promise<any>>();
+
+  /**
+   * Deduplikasi request bersamaan agar tidak membebani kuota & antrian Google Apps Script
+   */
+  private deduplicatedRequest<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+    if (this.inFlightRequests.has(key)) {
+      return this.inFlightRequests.get(key) as Promise<T>;
+    }
+    const promise = fetcher().finally(() => {
+      this.inFlightRequests.delete(key);
+    });
+    this.inFlightRequests.set(key, promise);
+    return promise;
+  }
+
   /**
    * Helper request ke Google Apps Script Web App
-   * Menggunakan fetch dengan redirect follow (Apps Script Web App 302 redirect)
+   * Menggunakan POST dengan text/plain body untuk performa ultra-cepat & bebas blokir CORS redirect
    */
   private async requestGAS<T = any>(action: string, payload: any = {}, method: 'GET' | 'POST' = 'POST'): Promise<ApiResponse<T>> {
     if (!this.apiUrl) {
       throw new Error('URL Google Apps Script belum dikonfigurasi.');
     }
 
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => {
+      controller.abort();
+    }, 12000); // Batas timeout 12 detik
+
     try {
       let response: Response;
-      if (method === 'GET') {
-        const queryParams = new URLSearchParams({ action, ...payload }).toString();
-        response = await fetch(`${this.apiUrl}?${queryParams}`, {
-          method: 'GET',
-          redirect: 'follow',
-        });
-      } else {
+
+      // Apps Script menangani POST dengan text/plain tanpa CORS preflight OPTIONS dan tanpa masalah redirect cookie 302
+      if (method === 'POST' || true) {
         response = await fetch(this.apiUrl, {
           method: 'POST',
           mode: 'cors',
           redirect: 'follow',
+          signal: controller.signal,
           headers: {
-            'Content-Type': 'text/plain;charset=utf-8', // Apps Script menangani text/plain tanpa CORS preflight OPTIONS error
+            'Content-Type': 'text/plain;charset=utf-8',
           },
           body: JSON.stringify({ action, ...payload }),
         });
       }
+
+      clearTimeout(timeoutTimer);
 
       if (!response.ok) {
         throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
@@ -73,7 +93,12 @@ export class GasApiService {
       const json = await response.json();
       return json;
     } catch (err: any) {
-      console.warn(`GAS request error for action [${action}]:`, err);
+      clearTimeout(timeoutTimer);
+      if (err.name === 'AbortError') {
+        console.warn(`GAS request timed out for action [${action}]`);
+      } else {
+        console.warn(`GAS request error for action [${action}]:`, err);
+      }
       throw err;
     }
   }
@@ -137,19 +162,84 @@ export class GasApiService {
   }
 
   // =========================================================================
-  // DASHBOARD STATS
+  // HIGH-PERFORMANCE BATCH SYNC (1 KALI REQUEST UNTUK SEMUA MENU)
   // =========================================================================
-  async getDashboard(): Promise<ApiResponse<DashboardStats>> {
-    if (this.isConnectedToGas()) {
-      try {
-        const res = await this.requestGAS<DashboardStats>('getDashboard', {}, 'GET');
-        if (res.success) return res;
-      } catch (err) {
-        console.warn('GAS error on getDashboard');
-      }
+  async syncAll(): Promise<ApiResponse<{
+    peserta: Peserta[];
+    absensi: Absensi[];
+    shifts: Shift[];
+    profil: ProfilLembaga;
+    dashboard: DashboardStats;
+  }>> {
+    const fallbackData = {
+      peserta: this.getLocalPeserta().filter(p => p.statusPeserta !== 'Deleted'),
+      absensi: this.getLocalAbsensi(),
+      shifts: this.getLocalShifts(),
+      profil: this.getLocalProfil(),
+      dashboard: this.calculateLocalDashboardStats(),
+    };
+
+    if (!this.isConnectedToGas()) {
+      return { success: true, data: fallbackData };
     }
 
-    // Local Stats Calculation (strictly 0 if database is empty!)
+    return this.deduplicatedRequest('syncAll', async () => {
+      try {
+        const res = await this.requestGAS('syncAll', {}, 'POST');
+        if (res.success && res.data) {
+          const raw = res.data;
+          let normPeserta = fallbackData.peserta;
+          let normAbsensi = fallbackData.absensi;
+          let normShifts = fallbackData.shifts;
+
+          if (Array.isArray(raw.peserta)) {
+            normPeserta = raw.peserta.map((r: any) => this.normalizePesertaRow(r));
+            this.saveLocalPeserta(normPeserta);
+          }
+          if (Array.isArray(raw.absensi)) {
+            normAbsensi = raw.absensi.map((r: any) => this.normalizeAbsensiRow(r));
+            this.saveLocalAbsensi(normAbsensi);
+          }
+          if (Array.isArray(raw.shifts)) {
+            normShifts = raw.shifts.map((s: any) => ({
+              idShift: s['ID Shift'] || s.idShift,
+              namaShift: s['Nama Shift'] || s.namaShift,
+              jamMulai: s['Jam Mulai'] || s.jamMulai,
+              jamSelesai: s['Jam Selesai'] || s.jamSelesai,
+              status: s['Status'] || s.status,
+            }));
+            this.saveLocalShifts(normShifts);
+          }
+          if (raw.profil && raw.profil.namaLembaga) {
+            this.saveLocalProfil(raw.profil);
+          }
+
+          const dbStats = raw.dashboard || this.calculateLocalDashboardStats();
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('digitalmeera_dashboard_cache', JSON.stringify(dbStats));
+            window.dispatchEvent(new CustomEvent('digitalmeera_synced'));
+          }
+
+          return {
+            success: true,
+            data: {
+              peserta: normPeserta,
+              absensi: normAbsensi,
+              shifts: normShifts,
+              profil: raw.profil || fallbackData.profil,
+              dashboard: dbStats,
+            }
+          };
+        }
+      } catch (err) {
+        console.warn('syncAll batch failed, fallback to local cache:', err);
+      }
+      return { success: true, data: fallbackData };
+    });
+  }
+
+  // Helper hitung statistik lokal instan tanpa jeda
+  private calculateLocalDashboardStats(): DashboardStats {
     const peserta = this.getLocalPeserta().filter(p => p.statusPeserta !== 'Deleted');
     const absensi = this.getLocalAbsensi();
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -174,38 +264,69 @@ export class GasApiService {
     const tidakHadirHariIni = Math.max(0, totalPeserta - hadirTodaySet.size);
 
     return {
-      success: true,
-      data: {
-        totalPeserta,
-        paketOfficePemula,
-        paketOfficeDesain,
-        absensiHariIni,
-        tidakHadirHariIni,
-        totalAbsensi: absensi.length,
-        recentAbsensi: absensi.slice(-5).reverse(),
-      },
+      totalPeserta,
+      paketOfficePemula,
+      paketOfficeDesain,
+      absensiHariIni,
+      tidakHadirHariIni,
+      totalAbsensi: absensi.length,
+      recentAbsensi: absensi.slice(-5).reverse(),
     };
   }
 
   // =========================================================================
-  // PESERTA CRUD
+  // DASHBOARD STATS (INSTANT CACHE + BACKGROUND REVALIDATION)
   // =========================================================================
-  async getPeserta(): Promise<ApiResponse<Peserta[]>> {
+  async getDashboard(): Promise<ApiResponse<DashboardStats>> {
+    // 1. Ambil cache lokal dulu agar tampilan langsung muncul 0ms
+    const localStats = this.calculateLocalDashboardStats();
+
     if (this.isConnectedToGas()) {
-      try {
-        const res = await this.requestGAS<any[]>('getPeserta', {}, 'GET');
-        if (res.success && Array.isArray(res.data)) {
-          // Normalisasi nama kolom dari Sheet (misal "Nomor Murid" -> nomorMurid)
-          const normalized: Peserta[] = res.data.map(r => this.normalizePesertaRow(r));
-          this.saveLocalPeserta(normalized);
-          return { success: true, data: normalized };
+      return this.deduplicatedRequest('getDashboard', async () => {
+        try {
+          const res = await this.requestGAS<DashboardStats>('getDashboard', {}, 'POST');
+          if (res.success && res.data) {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('digitalmeera_dashboard_cache', JSON.stringify(res.data));
+            }
+            return res;
+          }
+        } catch (err) {
+          console.warn('GAS error on getDashboard, using local stats');
         }
-      } catch (err) {
-        console.warn('GAS error on getPeserta');
-      }
+        return { success: true, data: localStats };
+      });
     }
 
+    return {
+      success: true,
+      data: localStats,
+    };
+  }
+
+  // =========================================================================
+  // PESERTA CRUD (POST ULTRA CEPAT + SWR)
+  // =========================================================================
+  async getPeserta(): Promise<ApiResponse<Peserta[]>> {
     const localList = this.getLocalPeserta().filter(p => p.statusPeserta !== 'Deleted');
+
+    if (this.isConnectedToGas()) {
+      return this.deduplicatedRequest('getPeserta', async () => {
+        try {
+          const res = await this.requestGAS<any[]>('getPeserta', {}, 'POST');
+          if (res.success && Array.isArray(res.data)) {
+            // Normalisasi nama kolom dari Sheet (misal "Nomor Murid" -> nomorMurid)
+            const normalized: Peserta[] = res.data.map(r => this.normalizePesertaRow(r));
+            this.saveLocalPeserta(normalized);
+            return { success: true, data: normalized };
+          }
+        } catch (err) {
+          console.warn('GAS error on getPeserta, returning local cache');
+        }
+        return { success: true, data: localList };
+      });
+    }
+
     return { success: true, data: localList };
   }
 
@@ -392,19 +513,25 @@ export class GasApiService {
   // SISTEM ABSENSI (SCANNER & CRUD)
   // =========================================================================
   async getAbsensi(): Promise<ApiResponse<Absensi[]>> {
+    const localList = this.getLocalAbsensi();
+
     if (this.isConnectedToGas()) {
-      try {
-        const res = await this.requestGAS<any[]>('getAbsensi', {}, 'GET');
-        if (res.success && Array.isArray(res.data)) {
-          const normalized = res.data.map(r => this.normalizeAbsensiRow(r));
-          return { success: true, data: normalized };
+      return this.deduplicatedRequest('getAbsensi', async () => {
+        try {
+          const res = await this.requestGAS<any[]>('getAbsensi', {}, 'POST');
+          if (res.success && Array.isArray(res.data)) {
+            const normalized = res.data.map(r => this.normalizeAbsensiRow(r));
+            this.saveLocalAbsensi(normalized);
+            return { success: true, data: normalized };
+          }
+        } catch (err) {
+          console.warn('GAS error on getAbsensi, using local data');
         }
-      } catch (err) {
-        console.warn('GAS error on getAbsensi');
-      }
+        return { success: true, data: localList };
+      });
     }
 
-    return { success: true, data: this.getLocalAbsensi() };
+    return { success: true, data: localList };
   }
 
   async recordAbsensi(payload: {
@@ -558,25 +685,31 @@ export class GasApiService {
   // SHIFT MANAGEMENT
   // =========================================================================
   async getShifts(): Promise<ApiResponse<Shift[]>> {
+    const localShifts = this.getLocalShifts();
+
     if (this.isConnectedToGas()) {
-      try {
-        const res = await this.requestGAS<any[]>('getShift', {}, 'GET');
-        if (res.success && Array.isArray(res.data)) {
-          const normalized = res.data.map(s => ({
-            idShift: s['ID Shift'] || s.idShift,
-            namaShift: s['Nama Shift'] || s.namaShift,
-            jamMulai: s['Jam Mulai'] || s.jamMulai,
-            jamSelesai: s['Jam Selesai'] || s.jamSelesai,
-            status: s['Status'] || s.status,
-          }));
-          return { success: true, data: normalized };
+      return this.deduplicatedRequest('getShift', async () => {
+        try {
+          const res = await this.requestGAS<any[]>('getShift', {}, 'POST');
+          if (res.success && Array.isArray(res.data)) {
+            const normalized = res.data.map(s => ({
+              idShift: s['ID Shift'] || s.idShift,
+              namaShift: s['Nama Shift'] || s.namaShift,
+              jamMulai: s['Jam Mulai'] || s.jamMulai,
+              jamSelesai: s['Jam Selesai'] || s.jamSelesai,
+              status: s['Status'] || s.status,
+            }));
+            this.saveLocalShifts(normalized);
+            return { success: true, data: normalized };
+          }
+        } catch (err) {
+          console.warn('GAS error on getShift, using local shifts');
         }
-      } catch (err) {
-        console.warn('GAS error on getShift');
-      }
+        return { success: true, data: localShifts };
+      });
     }
 
-    return { success: true, data: this.getLocalShifts() };
+    return { success: true, data: localShifts };
   }
 
   async createShift(shift: Omit<Shift, 'idShift'>): Promise<ApiResponse<Shift>> {
@@ -637,16 +770,24 @@ export class GasApiService {
   // PROFIL & PENGATURAN
   // =========================================================================
   async getProfil(): Promise<ApiResponse<ProfilLembaga>> {
+    const localProfil = this.getLocalProfil();
+
     if (this.isConnectedToGas()) {
-      try {
-        const res = await this.requestGAS<ProfilLembaga>('getProfil', {}, 'GET');
-        if (res.success && res.data) return res;
-      } catch (err) {
-        console.warn('GAS error on getProfil');
-      }
+      return this.deduplicatedRequest('getProfil', async () => {
+        try {
+          const res = await this.requestGAS<ProfilLembaga>('getProfil', {}, 'POST');
+          if (res.success && res.data) {
+            this.saveLocalProfil(res.data);
+            return res;
+          }
+        } catch (err) {
+          console.warn('GAS error on getProfil, using local profil');
+        }
+        return { success: true, data: localProfil };
+      });
     }
 
-    return { success: true, data: this.getLocalProfil() };
+    return { success: true, data: localProfil };
   }
 
   async updateProfil(data: Partial<ProfilLembaga>): Promise<ApiResponse> {
@@ -706,11 +847,24 @@ export class GasApiService {
     }
 
     try {
-      const pingUrl = `${targetUrl}?action=ping`;
-      const response = await fetch(pingUrl, {
-        method: 'GET',
+      // 1. Coba POST terlebih dahulu (CORS paling ramah untuk browser)
+      let response = await fetch(targetUrl, {
+        method: 'POST',
+        mode: 'cors',
         redirect: 'follow',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'ping' }),
       });
+
+      // 2. Fallback ke GET jika POST gagal merespons
+      if (!response.ok) {
+        response = await fetch(`${targetUrl}?action=ping`, {
+          method: 'GET',
+          redirect: 'follow',
+        });
+      }
 
       if (!response.ok) {
         return {
@@ -744,7 +898,7 @@ export class GasApiService {
   // =========================================================================
   // LOCAL STORE HELPERS (ZERO DUMMY DATA COMPLIANT)
   // =========================================================================
-  private getLocalPeserta(): Peserta[] {
+  public getLocalPeserta(): Peserta[] {
     if (typeof window === 'undefined') return [];
     const raw = localStorage.getItem(LOCAL_PESERTA_KEY);
     const rawAlt = localStorage.getItem('digitalmeera_peserta_list');
@@ -777,7 +931,7 @@ export class GasApiService {
     return merged;
   }
 
-  private saveLocalPeserta(list: Peserta[]): void {
+  public saveLocalPeserta(list: Peserta[]): void {
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(LOCAL_PESERTA_KEY, JSON.stringify(list));
@@ -796,19 +950,19 @@ export class GasApiService {
     }
   }
 
-  private getLocalAbsensi(): Absensi[] {
+  public getLocalAbsensi(): Absensi[] {
     if (typeof window === 'undefined') return [];
     const raw = localStorage.getItem(LOCAL_ABSENSI_KEY);
     return raw ? JSON.parse(raw) : []; // EMPTY ARRAY! No dummy attendance!
   }
 
-  private saveLocalAbsensi(list: Absensi[]): void {
+  public saveLocalAbsensi(list: Absensi[]): void {
     if (typeof window !== 'undefined') {
       localStorage.setItem(LOCAL_ABSENSI_KEY, JSON.stringify(list));
     }
   }
 
-  private getLocalShifts(): Shift[] {
+  public getLocalShifts(): Shift[] {
     if (typeof window === 'undefined') return [];
     const raw = localStorage.getItem(LOCAL_SHIFTS_KEY);
     if (raw) return JSON.parse(raw);
@@ -823,13 +977,13 @@ export class GasApiService {
     return defaults;
   }
 
-  private saveLocalShifts(list: Shift[]): void {
+  public saveLocalShifts(list: Shift[]): void {
     if (typeof window !== 'undefined') {
       localStorage.setItem(LOCAL_SHIFTS_KEY, JSON.stringify(list));
     }
   }
 
-  private getLocalProfil(): ProfilLembaga {
+  public getLocalProfil(): ProfilLembaga {
     if (typeof window === 'undefined') {
       return {
         namaLembaga: 'DIGITALMEERA',

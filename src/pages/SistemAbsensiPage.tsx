@@ -24,8 +24,13 @@ export const SistemAbsensiPage: React.FC = () => {
   const [cameraError, setCameraError] = useState<string>('');
   const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
   const [isFlipping, setIsFlipping] = useState<boolean>(false);
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [selectedShift, setSelectedShift] = useState<string>('');
+  const [shifts, setShifts] = useState<Shift[]>(() => gasApi.getLocalShifts());
+  const [selectedShift, setSelectedShift] = useState<string>(() => {
+    const local = gasApi.getLocalShifts();
+    const nowStr = new Date().toTimeString().slice(0, 5);
+    const active = local.find(s => s.status === 'Aktif' && nowStr >= s.jamMulai && nowStr <= s.jamSelesai);
+    return active ? active.namaShift : (local[0]?.namaShift || '');
+  });
   const [override, setOverride] = useState<boolean>(false);
 
   // Manual Input fallback

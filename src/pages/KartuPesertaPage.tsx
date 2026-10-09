@@ -11,7 +11,8 @@ import {
   Search, 
   CheckCircle2,
   QrCode as QrCodeIcon,
-  Sparkles
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 
 interface KartuPesertaPageProps {
@@ -225,7 +226,9 @@ const StudentCardItem: React.FC<{
 };
 
 export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) => {
-  const [pesertaList, setPesertaList] = useState<Peserta[]>([]);
+  const [pesertaList, setPesertaList] = useState<Peserta[]>(() => {
+    return gasApi.getLocalPeserta().filter((p) => p.statusPeserta !== 'Deleted');
+  });
   const [cardConfig, setCardConfig] = useState<CardTemplateConfig>({
     theme: 'modern-navy',
     accentColor: '#0ea5e9',
@@ -235,14 +238,15 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
     showWatermark: true,
     useCustomTemplate: false,
   });
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [downloadingAll, setDownloadingAll] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
 
   useEffect(() => {
     const init = async () => {
-      setLoading(true);
+      setIsSyncing(true);
       try {
         const [pRes, cfg] = await Promise.all([
           gasApi.getPeserta(),
@@ -255,6 +259,7 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
       } catch (err) {
         console.error('Error loading cards:', err);
       } finally {
+        setIsSyncing(false);
         setLoading(false);
       }
     };
@@ -266,7 +271,7 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
 
     window.addEventListener('storage', handleSync);
     window.addEventListener('peserta_updated', handleSync);
-    window.addEventListener('focus', handleSync);
+    window.addEventListener('digitalmeera_synced', handleSync);
 
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
@@ -283,7 +288,7 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
     return () => {
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('peserta_updated', handleSync);
-      window.removeEventListener('focus', handleSync);
+      window.removeEventListener('digitalmeera_synced', handleSync);
       if (channel) {
         channel.close();
       }
@@ -335,15 +340,33 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleDownloadAll}
-          disabled={downloadingAll || pesertaList.length === 0}
-          className="inline-flex items-center gap-2 self-start sm:self-auto rounded-xl bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-all disabled:opacity-50"
-        >
-          <Download className="h-4 w-4" />
-          <span>{downloadingAll ? 'Menyiapkan PDF...' : 'Download Semua Kartu (PDF)'}</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setIsSyncing(true);
+              gasApi.getPeserta().then(res => {
+                if (res.success && res.data) setPesertaList(res.data.filter(p => p.statusPeserta !== 'Deleted'));
+                setIsSyncing(false);
+              }).catch(() => setIsSyncing(false));
+            }}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin text-sky-600' : 'text-slate-500'}`} />
+            <span>{isSyncing ? 'Menyinkronkan...' : 'Segarkan'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadAll}
+            disabled={downloadingAll || pesertaList.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-all disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            <span>{downloadingAll ? 'Menyiapkan PDF...' : 'Download Semua Kartu (PDF)'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Template Status Notice */}
@@ -369,8 +392,9 @@ export const KartuPesertaPage: React.FC<KartuPesertaPageProps> = ({ profil }) =>
       </div>
 
       {/* Card Grid */}
-      {loading ? (
+      {(loading || (isSyncing && pesertaList.length === 0)) ? (
         <div className="p-12 text-center text-slate-400 text-xs">
+          <RefreshCw className="h-6 w-6 animate-spin text-sky-600 mx-auto mb-2" />
           Memuat kartu peserta...
         </div>
       ) : filtered.length > 0 ? (

@@ -20,7 +20,8 @@ import {
   AlertCircle,
   FileText,
   Image as ImageIcon,
-  ExternalLink
+  ExternalLink,
+  RefreshCw
 } from 'lucide-react';
 
 interface PesertaPageProps {
@@ -28,8 +29,11 @@ interface PesertaPageProps {
 }
 
 export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
-  const [pesertaList, setPesertaList] = useState<Peserta[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [pesertaList, setPesertaList] = useState<Peserta[]>(() => {
+    return gasApi.getLocalPeserta().filter(p => p.statusPeserta !== 'Deleted');
+  });
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -54,7 +58,7 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
   const [cardConfig, setCardConfig] = useState<CardTemplateConfig | undefined>();
 
   const fetchPeserta = async () => {
-    setLoading(true);
+    setIsSyncing(true);
     try {
       const [res, cfg] = await Promise.all([
         gasApi.getPeserta(),
@@ -67,6 +71,7 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
     } catch (err) {
       console.error('Failed to load peserta', err);
     } finally {
+      setIsSyncing(false);
       setLoading(false);
     }
   };
@@ -80,14 +85,14 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
 
     window.addEventListener('storage', handleSync);
     window.addEventListener('peserta_updated', handleSync);
-    window.addEventListener('focus', handleSync);
+    window.addEventListener('digitalmeera_synced', handleSync);
 
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         channel = new BroadcastChannel('digitalmeera_sync');
         channel.onmessage = (msg) => {
-          if (msg.data?.type === 'PESERTA_ADDED' || msg.data?.type === 'PESERTA_UPDATED') {
+          if (msg.data?.type === 'PESERTA_ADDED' || msg.data?.type === 'PESERTA_UPDATED' || msg.data?.type === 'SYNC') {
             fetchPeserta();
           }
         };
@@ -99,7 +104,7 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
     return () => {
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('peserta_updated', handleSync);
-      window.removeEventListener('focus', handleSync);
+      window.removeEventListener('digitalmeera_synced', handleSync);
       if (channel) {
         channel.close();
       }
@@ -186,6 +191,17 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={fetchPeserta}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-all disabled:opacity-50"
+            title="Segarkan data dari spreadsheet"
+          >
+            <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin text-sky-600' : 'text-slate-500'}`} />
+            <span>{isSyncing ? 'Menyinkronkan...' : 'Segarkan Data'}</span>
+          </button>
+
           <a
             href="/pendaftaran.html"
             target="_blank"
@@ -194,7 +210,7 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
             title="Buka formulir pendaftaran mandiri siswa publik"
           >
             <ExternalLink className="h-4 w-4 text-sky-600" />
-            <span>Formulir Pendaftaran Mandiri (/pendaftaran.html)</span>
+            <span>Formulir Mandiri (/pendaftaran.html)</span>
           </a>
 
           <button
@@ -263,8 +279,9 @@ export const PesertaPage: React.FC<PesertaPageProps> = ({ profil }) => {
 
       {/* Main Table */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-        {loading ? (
+        {(loading || (isSyncing && pesertaList.length === 0)) ? (
           <div className="p-12 text-center text-slate-400 text-xs">
+            <RefreshCw className="h-6 w-6 animate-spin text-sky-600 mx-auto mb-2" />
             Memuat data peserta dari Google Spreadsheet...
           </div>
         ) : filteredList.length > 0 ? (

@@ -48,18 +48,18 @@ export function App() {
   const [codeModalOpen, setCodeModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    // Load profil lembaga
-    const loadProfil = async () => {
+    // Sinkronisasi data awal menyeluruh (peserta, absensi, profil) secara simultan & instan
+    const initApp = async () => {
       try {
-        const res = await gasApi.getProfil();
-        if (res.success && res.data) {
-          setProfil(res.data);
+        const res = await gasApi.syncAll();
+        if (res.success && res.data?.profil?.namaLembaga) {
+          setProfil(res.data.profil);
         }
       } catch (err) {
-        console.error('Failed to load profile', err);
+        console.warn('Failed initial background sync', err);
       }
     };
-    loadProfil();
+    initApp();
   }, []);
 
   const handleLoginSuccess = (admin: AdminUser) => {

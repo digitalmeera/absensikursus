@@ -13,13 +13,15 @@ import {
   CheckCircle2, 
   Clock, 
   User, 
-  FileSpreadsheet
+  FileSpreadsheet,
+  RefreshCw
 } from 'lucide-react';
 
 export const MonitoringAbsensiPage: React.FC = () => {
-  const [absensiList, setAbsensiList] = useState<Absensi[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [absensiList, setAbsensiList] = useState<Absensi[]>(() => gasApi.getLocalAbsensi());
+  const [shifts, setShifts] = useState<Shift[]>(() => gasApi.getLocalShifts());
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -43,7 +45,7 @@ export const MonitoringAbsensiPage: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string>('');
 
   const fetchAbsensi = async () => {
-    setLoading(true);
+    setIsSyncing(true);
     try {
       const [aRes, sRes] = await Promise.all([
         gasApi.getAbsensi(),
@@ -58,12 +60,25 @@ export const MonitoringAbsensiPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load absensi monitoring', err);
     } finally {
+      setIsSyncing(false);
       setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchAbsensi();
+
+    const handleSync = () => {
+      fetchAbsensi();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('digitalmeera_synced', handleSync);
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('digitalmeera_synced', handleSync);
+    };
   }, []);
 
   const showToast = (msg: string) => {
@@ -145,13 +160,25 @@ export const MonitoringAbsensiPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div>
-        <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-          Monitoring Absensi
-        </h2>
-        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          Pantau seluruh rekaman presensi barcode, verifikasi kehadiran, dan edit koreksi waktu.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            Monitoring Absensi
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Pantau seluruh rekaman presensi barcode, verifikasi kehadiran, dan edit koreksi waktu.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={fetchAbsensi}
+          disabled={isSyncing}
+          className="inline-flex items-center gap-2 self-start sm:self-auto rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-all disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin text-sky-600' : 'text-slate-500'}`} />
+          <span>{isSyncing ? 'Menyinkronkan...' : 'Segarkan Data'}</span>
+        </button>
       </div>
 
       {/* Filters Bar */}
@@ -227,8 +254,9 @@ export const MonitoringAbsensiPage: React.FC = () => {
 
       {/* Main Table */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-        {loading ? (
+        {(loading || (isSyncing && absensiList.length === 0)) ? (
           <div className="p-12 text-center text-slate-400 text-xs">
+            <RefreshCw className="h-6 w-6 animate-spin text-sky-600 mx-auto mb-2" />
             Memuat data absensi...
           </div>
         ) : filtered.length > 0 ? (
